@@ -1,0 +1,76 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <AssemblyName>RavaCast</AssemblyName>
+    <Version>1.0.0.0</Version>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Platforms>x64</Platforms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="RavaCast.Renderer\**\*" />
+    <EmbeddedResource Remove="RavaCast.Renderer\**\*" />
+    <Content Remove="RavaCast.Renderer\**\*" />
+    <None Remove="RavaCast.Renderer\**\*" />
+    <Compile Remove="RavaCast.Media.Native\**\*" />
+    <EmbeddedResource Remove="RavaCast.Media.Native\**\*" />
+    <Content Remove="RavaCast.Media.Native\**\*" />
+    <None Remove="RavaCast.Media.Native\**\*" />
+    <Compile Remove="RavaCast.Media.BridgeHost\**\*" />
+    <EmbeddedResource Remove="RavaCast.Media.BridgeHost\**\*" />
+    <Content Remove="RavaCast.Media.BridgeHost\**\*" />
+    <None Remove="RavaCast.Media.BridgeHost\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="2.5.187" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.1" />
+    <PackageReference Include="SharpDX" Version="4.2.0" />
+    <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
+    <PackageReference Include="SharpDX.DXGI" Version="4.2.0" />
+    <PackageReference Include="SharpDX.Mathematics" Version="4.2.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <BundleRavaCastRenderer Condition="Exists('RavaCast.Renderer\RavaCast.Renderer.csproj')">true</BundleRavaCastRenderer>
+    <BundleRavaCastRenderer Condition="'$(BundleRavaCastRenderer)' == ''">false</BundleRavaCastRenderer>
+  </PropertyGroup>
+
+  <Target Name="PublishRavaCastRenderer" AfterTargets="Build" BeforeTargets="PackagePlugin;CreatePluginPackage;CreateDalamudZip;CreateDalamudPackage;ZipPlugin" Condition="'$(BundleRavaCastRenderer)' == 'true' and '$(DesignTimeBuild)' != 'true'">
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)\RavaCast.Renderer\RavaCast.Renderer.csproj&quot; -c $(Configuration) -r win-x64 --self-contained false -p:PlatformTarget=x64 -p:Prefer32Bit=false -o &quot;$(TargetDir)&quot;" />
+    <CallTarget Targets="ValidateRavaCastRendererBundle" />
+  </Target>
+
+  <Target Name="ValidateRavaCastRendererBundle" Condition="'$(BundleRavaCastRenderer)' == 'true' and '$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)RavaCast.Renderer.exe" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)RavaCast.Media.Native.dll" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)RavaCast.Media.BridgeHost.exe" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)RavaCast.Media.BridgeHost.dll" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)RavaCast.Media.BridgeHost.deps.json" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)RavaCast.Media.BridgeHost.runtimeconfig.json" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)datachannel.dll" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)ffmpeg.exe" />
+      <_RavaCastRequiredBundleFile Include="$(TargetDir)WebView2Loader.dll" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(_RavaCastRequiredBundleFile.Identity)')" Text="RavaCast bundle is incomplete. Missing required file '%(_RavaCastRequiredBundleFile.Identity)'." />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Update="DalamudPackager" Version="15.0.0" />
+    <PackageReference Update="DotNet.ReproducibleBuilds" Version="2.0.2" />
+  </ItemGroup>
+
+
+  <Target Name="RavaCastCreateDalamudPackage" AfterTargets="Build" DependsOnTargets="PublishRavaCastRenderer;ValidateRavaCastRendererBundle" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
+    <Message Importance="high" Text="[RavaCast] Creating Dalamud latest.zip..." />
+    <DalamudPackager ProjectDir="$(ProjectDir)" OutputPath="$(OutputPath)" AssemblyName="$(AssemblyName)" MakeZip="true" />
+    <Error Condition="!Exists('$(TargetDir)$(AssemblyName)\latest.zip')" Text="RavaCast Release packaging failed: DalamudPackager did not create $(TargetDir)$(AssemblyName)\latest.zip." />
+    <Message Importance="high" Text="[RavaCast] Dalamud package: $(TargetDir)$(AssemblyName)\latest.zip" />
+  </Target>
+</Project>

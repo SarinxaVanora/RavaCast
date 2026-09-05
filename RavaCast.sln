@@ -1,0 +1,42 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RavaCast", "RavaCast.csproj", "{BB9D786B-44D4-4AB6-BD78-D38B565B2360}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RavaCast.Renderer", "RavaCast.Renderer\RavaCast.Renderer.csproj", "{45AC61FA-C417-46A6-9829-41C1985F50DE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RavaCast.Media.Native", "RavaCast.Media.Native\RavaCast.Media.Native.csproj", "{E84D50D2-D1E5-46AB-A712-5DC5E65A954D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RavaCast.Media.BridgeHost", "RavaCast.Media.BridgeHost\RavaCast.Media.BridgeHost.csproj", "{AA1C5EF5-4F65-4E87-889F-C3CE73845AAF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BB9D786B-44D4-4AB6-BD78-D38B565B2360}.Debug|x64.ActiveCfg = Debug|x64
+		{BB9D786B-44D4-4AB6-BD78-D38B565B2360}.Debug|x64.Build.0 = Debug|x64
+		{BB9D786B-44D4-4AB6-BD78-D38B565B2360}.Release|x64.ActiveCfg = Release|x64
+		{BB9D786B-44D4-4AB6-BD78-D38B565B2360}.Release|x64.Build.0 = Release|x64
+		{45AC61FA-C417-46A6-9829-41C1985F50DE}.Debug|x64.ActiveCfg = Debug|x64
+		{45AC61FA-C417-46A6-9829-41C1985F50DE}.Debug|x64.Build.0 = Debug|x64
+		{45AC61FA-C417-46A6-9829-41C1985F50DE}.Release|x64.ActiveCfg = Release|x64
+		{45AC61FA-C417-46A6-9829-41C1985F50DE}.Release|x64.Build.0 = Release|x64
+		{E84D50D2-D1E5-46AB-A712-5DC5E65A954D}.Debug|x64.ActiveCfg = Debug|x64
+		{E84D50D2-D1E5-46AB-A712-5DC5E65A954D}.Debug|x64.Build.0 = Debug|x64
+		{E84D50D2-D1E5-46AB-A712-5DC5E65A954D}.Release|x64.ActiveCfg = Release|x64
+		{E84D50D2-D1E5-46AB-A712-5DC5E65A954D}.Release|x64.Build.0 = Release|x64
+		{AA1C5EF5-4F65-4E87-889F-C3CE73845AAF}.Debug|x64.ActiveCfg = Debug|x64
+		{AA1C5EF5-4F65-4E87-889F-C3CE73845AAF}.Debug|x64.Build.0 = Debug|x64
+		{AA1C5EF5-4F65-4E87-889F-C3CE73845AAF}.Release|x64.ActiveCfg = Release|x64
+		{AA1C5EF5-4F65-4E87-889F-C3CE73845AAF}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {42C5CCCE-9877-4E67-8670-B76E023BD835}
+	EndGlobalSection
+EndGlobal
