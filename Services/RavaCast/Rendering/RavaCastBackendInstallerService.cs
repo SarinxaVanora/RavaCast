@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -37,6 +38,8 @@ public sealed class RavaCastBackendInstallerService : IDisposable
         "libcrypto-3-x64.dll",
         "libssl-3-x64.dll"
     ];
+    private static readonly string[] RequiredVisualCppRuntimeLibraries = [ "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll" ];
+    private static readonly Lazy<string[]> MissingVisualCppRuntimeLibrariesProbe = new(ProbeMissingVisualCppRuntimeLibraries);
 
     private readonly ILogger<RavaCastBackendInstallerService> _logger;
     private readonly IDalamudPluginInterface _pluginInterface;
@@ -60,8 +63,26 @@ public sealed class RavaCastBackendInstallerService : IDisposable
     public bool IsInstalled => File.Exists(RendererPath);
     public bool IsWebView2RuntimeInstalled => TryGetInstalledWebView2RuntimeVersion(out _);
     public bool IsNativeBridgeInstalled => MissingDirectStreamNativeFiles.Length == 0;
+    public bool IsVisualCppRuntimeReady => MissingVisualCppRuntimeLibraries.Length == 0;
+    public bool IsDirectStreamRuntimeReady => IsNativeBridgeInstalled && IsVisualCppRuntimeReady;
     public string[] MissingRendererFiles => IsInstalled ? [] : [RendererExeName];
     public string[] MissingDirectStreamNativeFiles => RequiredDirectStreamRuntimeFiles.Where(name => !File.Exists(Path.Combine(InstallDirectory, name))).ToArray();
+    public string[] MissingVisualCppRuntimeLibraries => MissingVisualCppRuntimeLibrariesProbe.Value;
+    public string DirectStreamRuntimeIssue
+    {
+        get
+        {
+            var missingFiles = MissingDirectStreamNativeFiles;
+            if (missingFiles.Length > 0)
+                return "Direct Stream files are missing from this install: " + string.Join(", ", missingFiles) + ". Reinstall or update RavaCast.";
+
+            var missingVisualCpp = MissingVisualCppRuntimeLibraries;
+            if (missingVisualCpp.Length > 0)
+                return "Microsoft Visual C++ 2015-2022 Redistributable (x64) is required for RavaCast Direct Stream. Missing runtime libraries: " + string.Join(", ", missingVisualCpp) + ". Install the x64 redistributable from https://aka.ms/vs/17/release/vc_redist.x64.exe, then restart Final Fantasy XIV.";
+
+            return string.Empty;
+        }
+    }
     public bool IsInstalling { get; private set; }
     public string StatusText { get; private set; } = "Bundled WebView2 renderer";
     public string? Detail { get; private set; }
@@ -91,6 +112,27 @@ public sealed class RavaCastBackendInstallerService : IDisposable
                 return fallback;
 
             return _pluginInterface.ConfigDirectory.FullName;
+        }
+    }
+
+    private static string[] ProbeMissingVisualCppRuntimeLibraries()
+    {
+        if (!OperatingSystem.IsWindows()) return [];
+
+        return RequiredVisualCppRuntimeLibraries.Where(name => !CanLoadNativeLibrary(name)).ToArray();
+    }
+
+    private static bool CanLoadNativeLibrary(string libraryName)
+    {
+        try
+        {
+            if (!NativeLibrary.TryLoad(libraryName, out var handle)) return false;
+            NativeLibrary.Free(handle);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 

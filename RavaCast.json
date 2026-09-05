@@ -5,12 +5,17 @@
   "AssemblyVersion": "1.0.0.0",
   "Description": "Shared in-world screens and direct streaming for FFXIV.",
   "ApplicableVersion": "any",
-  "Tags": [ "media", "social" ],
+  "Tags": [
+    "media",
+    "social"
+  ],
   "DalamudApiLevel": 15,
   "LoadRequiredState": 0,
   "LoadSync": false,
   "CanUnloadAsync": true,
   "LoadPriority": 0,
   "Punchline": "Cast together.",
-  "AcceptsFeedback": true
+  "AcceptsFeedback": true,
+  "RepoUrl": "https://github.com/SarinxaVanora/RavaCast",
+  "IconUrl": "https://raw.githubusercontent.com/SarinxaVanora/RavaCast/master/images/icon.png"
 }

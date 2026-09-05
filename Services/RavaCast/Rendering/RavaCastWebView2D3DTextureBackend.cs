@@ -109,8 +109,8 @@ public sealed class RavaCastWebView2D3DTextureBackend : IRavaCastTextureBackend
         }
         else
         {
-            _directStreamStatusText = "Direct Stream files missing";
-            _directStreamDetail = "Missing Direct Stream files: " + string.Join(", ", _installer.MissingDirectStreamNativeFiles);
+            _directStreamStatusText = _installer.IsNativeBridgeInstalled ? "Microsoft Visual C++ runtime missing" : "Direct Stream files missing";
+            _directStreamDetail = _installer.DirectStreamRuntimeIssue;
         }
     }
 
@@ -163,8 +163,8 @@ public sealed class RavaCastWebView2D3DTextureBackend : IRavaCastTextureBackend
                 _nativeMediaAvailable = NativeMediaBoundaryAvailable;
                 if (!_nativeMediaAvailable)
                 {
-                    _directStreamStatusText = "Direct Stream files missing";
-                    _directStreamDetail = "Missing Direct Stream files: " + string.Join(", ", _installer.MissingDirectStreamNativeFiles);
+                    _directStreamStatusText = _installer.IsNativeBridgeInstalled ? "Microsoft Visual C++ runtime missing" : "Direct Stream files missing";
+                    _directStreamDetail = _installer.DirectStreamRuntimeIssue;
                 }
                 return new RavaCastDirectStreamBackendStatus(_directStreamPublisherActive, _directStreamReceiverActive, _nativeMediaAvailable, _directStreamStatusText, _directStreamDetail, _directStreamPeers.Count);
             }
@@ -525,11 +525,11 @@ public sealed class RavaCastWebView2D3DTextureBackend : IRavaCastTextureBackend
 
         if (!NativeMediaBoundaryAvailable)
         {
-            error = string.Join(", ", _installer.MissingDirectStreamNativeFiles);
+            error = _installer.DirectStreamRuntimeIssue;
             if (string.IsNullOrWhiteSpace(error))
-                error = "Direct Stream runtime files are not packaged beside the renderer.";
+                error = "Direct Stream runtime prerequisites are not available.";
             _nativeMediaAvailable = false;
-            SetDirectStreamStatus(false, _directStreamReceiverActive, "Direct Stream files missing", "Missing Direct Stream files: " + error);
+            SetDirectStreamStatus(false, _directStreamReceiverActive, _installer.IsNativeBridgeInstalled ? "Microsoft Visual C++ runtime missing" : "Direct Stream files missing", error);
             return false;
         }
         _nativeMediaAvailable = true;
@@ -572,11 +572,11 @@ public sealed class RavaCastWebView2D3DTextureBackend : IRavaCastTextureBackend
 
         if (!NativeMediaBoundaryAvailable)
         {
-            error = string.Join(", ", _installer.MissingDirectStreamNativeFiles);
+            error = _installer.DirectStreamRuntimeIssue;
             if (string.IsNullOrWhiteSpace(error))
-                error = "Direct Stream runtime files are not packaged beside the renderer.";
+                error = "Direct Stream runtime prerequisites are not available.";
             _nativeMediaAvailable = false;
-            SetDirectStreamStatus(_directStreamPublisherActive, false, "Direct Stream files missing", "Missing Direct Stream files: " + error);
+            SetDirectStreamStatus(_directStreamPublisherActive, false, _installer.IsNativeBridgeInstalled ? "Microsoft Visual C++ runtime missing" : "Direct Stream files missing", error);
             return false;
         }
         _nativeMediaAvailable = true;
@@ -1530,7 +1530,7 @@ public sealed class RavaCastWebView2D3DTextureBackend : IRavaCastTextureBackend
             || text.Contains("broken", StringComparison.OrdinalIgnoreCase);
     }
 
-    private bool NativeMediaBoundaryAvailable => _installer.IsNativeBridgeInstalled;
+    private bool NativeMediaBoundaryAvailable => _installer.IsDirectStreamRuntimeReady;
 
     private string BuildMissingReason()
     {

@@ -1,0 +1,170 @@
+name: Release RavaCast
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ravacast-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-and-release:
+    name: Build and publish latest.zip
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content -Raw .\RavaCast.csproj
+          $version = @($project.Project.PropertyGroup.Version | Where-Object { $_ })[0].Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw 'Could not read <Version> from RavaCast.csproj.'
+          }
+
+          if ('${{ github.event_name }}' -eq 'push') {
+            $tag = '${{ github.ref_name }}'
+            $tagVersion = $tag.TrimStart('v')
+            if ($tagVersion -ne $version) {
+              throw "Release tag '$tag' does not match RavaCast.csproj version '$version'."
+            }
+          }
+          else {
+            $tag = "v$version"
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "RavaCast version: $version"
+          Write-Host "Release tag: $tag"
+
+      - name: Install Dalamud build references
+        shell: pwsh
+        run: |
+          $dalamudDir = Join-Path $env:APPDATA 'XIVLauncher\addon\Hooks\dev'
+          $dalamudZip = Join-Path $env:RUNNER_TEMP 'dalamud-latest.zip'
+
+          Remove-Item $dalamudDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $dalamudDir | Out-Null
+
+          Invoke-WebRequest -Uri 'https://goatcorp.github.io/dalamud-distrib/latest.zip' -OutFile $dalamudZip
+          Expand-Archive -Path $dalamudZip -DestinationPath $dalamudDir -Force
+          Remove-Item $dalamudZip -Force
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore .\RavaCast.csproj
+
+      - name: Build release package
+        shell: pwsh
+        run: dotnet build .\RavaCast.csproj -c Release -p:Platform=x64 --no-restore
+
+      - name: Stage and verify latest.zip
+        id: package
+        shell: pwsh
+        run: |
+          $expected = Join-Path $PWD 'bin\x64\Release\RavaCast\latest.zip'
+          if (!(Test-Path $expected)) {
+            $found = Get-ChildItem -Path (Join-Path $PWD 'bin') -Filter latest.zip -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -eq $found) {
+              throw 'Release build completed but no Dalamud latest.zip was produced.'
+            }
+            $expected = $found.FullName
+          }
+
+          $releaseDir = Join-Path $PWD 'release'
+          $verifyDir = Join-Path $env:RUNNER_TEMP 'ravacast-package-verify'
+          Remove-Item $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $verifyDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $verifyDir | Out-Null
+
+          $releaseZip = Join-Path $releaseDir 'latest.zip'
+          Copy-Item $expected $releaseZip -Force
+          Expand-Archive -Path $releaseZip -DestinationPath $verifyDir -Force
+
+          $required = @(
+            'RavaCast.dll',
+            'RavaCast.json',
+            'RavaCast.Renderer.exe',
+            'RavaCast.Media.Native.dll',
+            'RavaCast.Media.BridgeHost.exe',
+            'RavaCast.Media.BridgeHost.dll',
+            'RavaCast.Media.BridgeHost.deps.json',
+            'RavaCast.Media.BridgeHost.runtimeconfig.json',
+            'datachannel.dll',
+            'ffmpeg.exe',
+            'libcrypto-3-x64.dll',
+            'libssl-3-x64.dll',
+            'WebView2Loader.dll'
+          )
+
+          foreach ($file in $required) {
+            if (!(Test-Path (Join-Path $verifyDir $file))) {
+              throw "latest.zip is incomplete: missing '$file' at the archive root."
+            }
+          }
+
+          $manifest = Get-Content -Raw (Join-Path $verifyDir 'RavaCast.json') | ConvertFrom-Json
+          if ($manifest.InternalName -ne 'RavaCast') {
+            throw "Packaged manifest InternalName is '$($manifest.InternalName)', expected 'RavaCast'."
+          }
+          if ($manifest.AssemblyVersion -ne '${{ steps.version.outputs.version }}') {
+            throw "Packaged manifest AssemblyVersion '$($manifest.AssemblyVersion)' does not match '${{ steps.version.outputs.version }}'."
+          }
+          if ([int]$manifest.DalamudApiLevel -ne 15) {
+            throw "Packaged manifest DalamudApiLevel '$($manifest.DalamudApiLevel)' is not 15."
+          }
+
+          $sizeMiB = [Math]::Round((Get-Item $releaseZip).Length / 1MB, 2)
+          Write-Host "Verified release\latest.zip ($sizeMiB MiB)"
+          "zip=$releaseZip" >> $env:GITHUB_OUTPUT
+
+      - name: Create or update GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_ZIP: ${{ steps.package.outputs.zip }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo '${{ github.repository }}' *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+            Write-Host "Release $env:RELEASE_TAG already exists; replacing latest.zip."
+            gh release upload $env:RELEASE_TAG "$env:RELEASE_ZIP#latest.zip" --clobber --repo '${{ github.repository }}'
+          }
+          else {
+            gh release create $env:RELEASE_TAG "$env:RELEASE_ZIP#latest.zip" `
+              --repo '${{ github.repository }}' `
+              --target '${{ github.sha }}' `
+              --title "RavaCast $env:RELEASE_VERSION" `
+              --generate-notes
+          }
+
+          if ($LASTEXITCODE -ne 0) {
+            throw 'GitHub Release creation/upload failed.'
+          }
+
+          Write-Host 'Release asset URL:'
+          Write-Host 'https://github.com/SarinxaVanora/RavaCast/releases/latest/download/latest.zip'

@@ -169,7 +169,8 @@ public sealed class RavaCastUi : WindowMediatorSubscriberBase
     {
         var runtimeReady = !OperatingSystem.IsWindows() || _backendInstaller.TryGetInstalledWebView2RuntimeVersion(out var runtimeVersion);
         var missingDirectStreamFiles = _backendInstaller.MissingDirectStreamNativeFiles;
-        var hasSetupIssue = !_backendInstaller.IsInstalled || !runtimeReady || missingDirectStreamFiles.Length > 0 || !string.IsNullOrWhiteSpace(_webView2RuntimeInstallStatus);
+        var missingVisualCppRuntime = _backendInstaller.MissingVisualCppRuntimeLibraries;
+        var hasSetupIssue = !_backendInstaller.IsInstalled || !runtimeReady || missingDirectStreamFiles.Length > 0 || missingVisualCppRuntime.Length > 0 || !string.IsNullOrWhiteSpace(_webView2RuntimeInstallStatus);
         if (!hasSetupIssue) return;
 
         DrawSection("Setup");
@@ -191,6 +192,12 @@ public sealed class RavaCastUi : WindowMediatorSubscriberBase
         {
             ImGui.TextColored(ImGuiColors.DalamudYellow, "Direct Stream files are missing from this install: " + string.Join(", ", missingDirectStreamFiles));
             UiSharedService.TextWrapped("Reinstall or update RavaCast so the media bridge, libdatachannel, FFmpeg, and OpenSSL runtime files are copied beside RavaCast.dll.");
+        }
+
+        if (missingVisualCppRuntime.Length > 0)
+        {
+            ImGui.TextColored(ImGuiColors.DalamudYellow, "Microsoft Visual C++ 2015-2022 Redistributable (x64) is required for Direct Stream.");
+            UiSharedService.TextWrapped("Missing runtime libraries: " + string.Join(", ", missingVisualCppRuntime) + ". Install the x64 redistributable from https://aka.ms/vs/17/release/vc_redist.x64.exe, then restart Final Fantasy XIV.");
         }
 
         if (!string.IsNullOrWhiteSpace(_webView2RuntimeInstallStatus))
@@ -476,6 +483,9 @@ public sealed class RavaCastUi : WindowMediatorSubscriberBase
             || combined.Contains("source shared D3D texture", StringComparison.OrdinalIgnoreCase)
             || combined.Contains("source shared texture", StringComparison.OrdinalIgnoreCase))
             return "Waiting for the host preview";
+
+        if (combined.Contains("Visual C++", StringComparison.OrdinalIgnoreCase) || combined.Contains("VCRUNTIME140", StringComparison.OrdinalIgnoreCase) || combined.Contains("MSVCP140", StringComparison.OrdinalIgnoreCase))
+            return "Microsoft Visual C++ runtime is missing";
 
         if (!current.DirectStreamNativeMediaAvailable
             && (combined.Contains("media bridge files", StringComparison.OrdinalIgnoreCase)
