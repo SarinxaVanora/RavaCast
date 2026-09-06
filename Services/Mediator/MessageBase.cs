@@ -6,4 +6,4 @@ public abstract record MessageBase
 }
 
 public sealed record UiToggleMessage(Type UiType) : MessageBase;
-public sealed record MeshPayloadMessage(string LocalSessionId, string FromSessionId, byte[] Payload) : MessageBase;
+public sealed record MeshPayloadMessage(string TargetSessionId, string FromSessionId, byte[] Payload) : MessageBase;
