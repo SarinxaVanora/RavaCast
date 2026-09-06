@@ -21,6 +21,7 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private Task? _connectLoop;
     private string _localSessionId = string.Empty;
+    private string _registeredSessionId = string.Empty;
     private long _lastSessionProbe;
 
     public bool IsConnected => _hub.State == HubConnectionState.Connected;
@@ -33,7 +34,21 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
             .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
             .Build();
         _hub.On<RavaMeshMessage>("Client_MeshMessage", OnMessage);
-        _hub.Reconnected += async _ => await RegisterCurrentAsync().ConfigureAwait(false);
+        _hub.Reconnecting += _ =>
+        {
+            _registeredSessionId = string.Empty;
+            return Task.CompletedTask;
+        };
+        _hub.Reconnected += async _ =>
+        {
+            _registeredSessionId = string.Empty;
+            await RegisterCurrentAsync().ConfigureAwait(false);
+        };
+        _hub.Closed += _ =>
+        {
+            _registeredSessionId = string.Empty;
+            return Task.CompletedTask;
+        };
     }
 
     public void Start()
@@ -49,16 +64,25 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
         _lastSessionProbe = now;
         var session = _world.GetLocalSessionId();
         if (string.Equals(session, _localSessionId, StringComparison.Ordinal)) return;
+
         var old = _localSessionId;
         _localSessionId = session;
+        _registeredSessionId = string.Empty;
+
         _ = Task.Run(async () =>
         {
             try
             {
-                if (IsConnected && !string.IsNullOrWhiteSpace(old)) await _hub.InvokeAsync("MeshUnregister", Channel, old).ConfigureAwait(false);
+                if (IsConnected && !string.IsNullOrWhiteSpace(old))
+                    await _hub.InvokeAsync("MeshUnregister", Channel, old, _cts.Token).ConfigureAwait(false);
+
                 await RegisterCurrentAsync().ConfigureAwait(false);
             }
-            catch { }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RavaMesh session route refresh failed; it will be retried.");
+            }
         });
     }
 
@@ -76,17 +100,38 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
                         if (_hub.State == HubConnectionState.Disconnected)
                         {
                             await _hub.StartAsync(_cts.Token).ConfigureAwait(false);
-                            var version = await _hub.InvokeAsync<int>("MeshProtocolVersion", _cts.Token).ConfigureAwait(false);
-                            if (version != 1) _logger.LogWarning("RavaMesh protocol version {version} differs from expected version 1.", version);
-                            await RegisterCurrentAsync().ConfigureAwait(false);
+                            _registeredSessionId = string.Empty;
+
+                            // Protocol probing is diagnostic only. A probe failure must never leave a
+                            // connected SignalR socket permanently unregistered.
+                            try
+                            {
+                                var version = await _hub.InvokeAsync<int>("MeshProtocolVersion", _cts.Token).ConfigureAwait(false);
+                                if (version != 1)
+                                    _logger.LogWarning("RavaMesh protocol version {version} differs from expected version 1.", version);
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                _logger.LogWarning(ex, "RavaMesh protocol probe failed; continuing with route registration.");
+                            }
                         }
                     }
-                    finally { _connectGate.Release(); }
+                    finally
+                    {
+                        _connectGate.Release();
+                    }
                 }
+
+                // This is deliberately attempted even when the socket was already connected. It heals
+                // the connected-but-unregistered state after any transient registration failure.
+                if (IsConnected)
+                    await RegisterCurrentAsync().ConfigureAwait(false);
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception ex) { _logger.LogWarning(ex, "RavaMesh connection failed; retrying."); }
-            try { await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
+            catch (Exception ex) { _logger.LogWarning(ex, "RavaMesh connection/registration failed; retrying."); }
+
+            try { await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
@@ -94,19 +139,48 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
     {
         var session = _localSessionId;
         if (!IsConnected || string.IsNullOrWhiteSpace(session)) return;
+        if (string.Equals(session, _registeredSessionId, StringComparison.Ordinal)) return;
+
         await _hub.InvokeAsync("MeshRegister", Channel, session, _cts.Token).ConfigureAwait(false);
+        _registeredSessionId = session;
+        _logger.LogInformation("RavaMesh registered standalone RavaCast route {sessionId}.", session);
     }
 
     public async Task SendAsync(string sessionId, RavaGame message)
     {
         if (!IsConnected || string.IsNullOrWhiteSpace(sessionId)) return;
+
         var from = string.IsNullOrWhiteSpace(message.FromSessionId) ? _localSessionId : message.FromSessionId;
         if (string.IsNullOrWhiteSpace(from)) return;
+
         try
         {
-            await _hub.InvokeAsync("MeshSend", new RavaMeshMessage { Channel = Channel, FromSessionId = from, TargetSessionId = sessionId, Payload = message.Payload ?? [] }, _cts.Token).ConfigureAwait(false);
+            // MeshSend is rejected server-side unless the source route is registered. Ensure the
+            // source route is healthy immediately before sending rather than silently dropping a cast.
+            // A cast can be started before the one-second framework identity probe has populated
+            // _localSessionId, so adopt the already-derived local sender route on that first send.
+            if (string.IsNullOrWhiteSpace(_localSessionId))
+                _localSessionId = from;
+
+            if (string.Equals(from, _localSessionId, StringComparison.Ordinal))
+                await RegisterCurrentAsync().ConfigureAwait(false);
+            else
+                await _hub.InvokeAsync("MeshRegister", Channel, from, _cts.Token).ConfigureAwait(false);
+
+            await _hub.InvokeAsync("MeshSend", new RavaMeshMessage
+            {
+                Channel = Channel,
+                FromSessionId = from,
+                TargetSessionId = sessionId,
+                Payload = message.Payload ?? []
+            }, _cts.Token).ConfigureAwait(false);
         }
-        catch (Exception ex) { _logger.LogDebug(ex, "RavaMesh send to {sessionId} failed.", sessionId); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _registeredSessionId = string.Empty;
+            _logger.LogWarning(ex, "RavaMesh send to {sessionId} failed; registration will be retried.", sessionId);
+        }
     }
 
     private void OnMessage(RavaMeshMessage msg)

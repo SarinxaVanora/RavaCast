@@ -2,7 +2,6 @@ using Dalamud.Game.ClientState.Objects;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Plugin.Services;
-using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using RavaCast.Services.Mesh;
 using System.Security.Cryptography;
 using System.Text;
@@ -20,14 +19,28 @@ public sealed class GameWorldService
         _framework = framework;
     }
 
-    public unsafe string? GetIdentFromGameObject(IGameObject? gameObject)
+    /// <summary>
+    /// Builds a stable, privacy-preserving identity for any visible player using information every
+    /// nearby client can resolve independently: character name + home-world row id.
+    ///
+    /// Do not use remote ContentId here. FFXIV does not reliably expose another player's ContentId
+    /// through the object table, which caused standalone RavaCast lobby advertisements to have no
+    /// destination route for most nearby players.
+    /// </summary>
+    public string? GetIdentFromGameObject(IGameObject? gameObject)
     {
         if (gameObject is not IPlayerCharacter player || player.Address == nint.Zero) return null;
+
         try
         {
-            var cid = ((BattleChara*)player.Address)->Character.ContentId;
-            if (cid == 0) return null;
-            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cid.ToString())));
+            var name = player.Name.TextValue?.Trim();
+            var homeWorldId = player.HomeWorld.RowId;
+            if (string.IsNullOrWhiteSpace(name) || homeWorldId == 0) return null;
+
+            // Normalise the visible identity before hashing so every client derives the same route.
+            // Only the hash is handed to RavaSessionId/RavaMesh; character names are never sent as routes.
+            var canonicalIdentity = $"{name.Normalize(NormalizationForm.FormKC).ToUpperInvariant()}@{homeWorldId}";
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalIdentity)));
         }
         catch
         {
@@ -35,11 +48,13 @@ public sealed class GameWorldService
         }
     }
 
-    public string GetLocalSessionId()
+    public string GetSessionIdFromGameObject(IGameObject? gameObject)
     {
-        var ident = GetIdentFromGameObject(_objects.LocalPlayer);
+        var ident = GetIdentFromGameObject(gameObject);
         return string.IsNullOrWhiteSpace(ident) ? string.Empty : RavaSessionId.FromIdent(ident);
     }
+
+    public string GetLocalSessionId() => GetSessionIdFromGameObject(_objects.LocalPlayer);
 
     public async Task RunOnFrameworkThread(Action action)
     {

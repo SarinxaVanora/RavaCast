@@ -35,9 +35,8 @@ public sealed partial class RavaCastService
         {
             try
             {
-                var ident = _dalamudUtil.GetIdentFromGameObject(pc);
-                if (string.IsNullOrWhiteSpace(ident)) continue;
-                var sessionId = RavaSessionId.FromIdent(ident);
+                var sessionId = _dalamudUtil.GetSessionIdFromGameObject(pc);
+                if (string.IsNullOrWhiteSpace(sessionId)) continue;
                 SendEnvelope(fromSessionId, sessionId, env);
             }
             catch
@@ -118,8 +117,7 @@ public sealed partial class RavaCastService
         try
         {
             if (!_clientState.IsLoggedIn || _objects.LocalPlayer is null) return string.Empty;
-            var ident = _dalamudUtil.GetIdentFromGameObject(_objects.LocalPlayer);
-            return string.IsNullOrWhiteSpace(ident) ? string.Empty : RavaSessionId.FromIdent(ident);
+            return _dalamudUtil.GetLocalSessionId();
         }
         catch
         {
