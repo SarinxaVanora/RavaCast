@@ -19,6 +19,7 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
 {
     private const string ServerBaseUrl = "https://RavaSync.ravalyn.uk";
     private const string Channel = "ravacast";
+    private const int RequiredProtocolVersion = 2;
     private readonly ILogger<RavaMesh> _logger;
     private readonly PluginMediator _mediator;
     private readonly GameWorldService _world;
@@ -34,6 +35,7 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
     private long _lastSessionProbe;
     private long _sentCount;
     private long _receivedCount;
+    private int _serverProtocolVersion;
 
     public bool IsConnected => _hub.State == HubConnectionState.Connected;
     public bool IsDiscoveryReady => IsConnected
@@ -54,7 +56,8 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
             .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
             .Build();
 
-        _hub.On<RavaMeshMessage>("Client_MeshMessage", OnMessage);
+        _hub.On<string, string, string, byte[]>("Client_MeshMessageV2", (channel, targetSessionId, fromSessionId, payload) =>
+            OnMessageV2(channel, targetSessionId, fromSessionId, payload));
         _hub.Reconnecting += _ =>
         {
             ClearRegisteredRoutes();
@@ -63,6 +66,7 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
         _hub.Reconnected += async _ =>
         {
             ClearRegisteredRoutes();
+            await ProbeProtocolAsync().ConfigureAwait(false);
             await RegisterCurrentAsync().ConfigureAwait(false);
         };
         _hub.Closed += _ =>
@@ -138,16 +142,7 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
                             await _hub.StartAsync(_cts.Token).ConfigureAwait(false);
                             ClearRegisteredRoutes();
 
-                            try
-                            {
-                                var version = await _hub.InvokeAsync<int>("MeshProtocolVersion", _cts.Token).ConfigureAwait(false);
-                                if (version != 1)
-                                    _logger.LogWarning("RavaMesh protocol version {version} differs from expected version 1.", version);
-                            }
-                            catch (Exception ex) when (ex is not OperationCanceledException)
-                            {
-                                _logger.LogWarning(ex, "RavaMesh protocol probe failed; continuing with route registration.");
-                            }
+                            await ProbeProtocolAsync().ConfigureAwait(false);
                         }
                     }
                     finally
@@ -167,6 +162,23 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
 
             try { await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { break; }
+        }
+    }
+
+
+    private async Task ProbeProtocolAsync()
+    {
+        try
+        {
+            _serverProtocolVersion = await _hub.InvokeAsync<int>("MeshProtocolVersion", _cts.Token).ConfigureAwait(false);
+            if (_serverProtocolVersion < RequiredProtocolVersion)
+                _logger.LogWarning("RavaMesh server protocol {version} is too old; RavaCast requires protocol {required} for lobby relay.", _serverProtocolVersion, RequiredProtocolVersion);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _serverProtocolVersion = 0;
+            _logger.LogWarning(ex, "RavaMesh protocol probe failed; lobby relay will wait for a successful probe.");
         }
     }
 
@@ -212,13 +224,16 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
             else
                 await _hub.InvokeAsync("MeshRegister", Channel, from, _cts.Token).ConfigureAwait(false);
 
-            await _hub.InvokeAsync("MeshSend", new RavaMeshMessage
+            if (_serverProtocolVersion < RequiredProtocolVersion)
+                await ProbeProtocolAsync().ConfigureAwait(false);
+
+            if (_serverProtocolVersion < RequiredProtocolVersion)
             {
-                Channel = Channel,
-                FromSessionId = from,
-                TargetSessionId = sessionId,
-                Payload = message.Payload ?? []
-            }, _cts.Token).ConfigureAwait(false);
+                _logger.LogWarning("RavaMesh send skipped because server protocol {version} is below required protocol {required}.", _serverProtocolVersion, RequiredProtocolVersion);
+                return;
+            }
+
+            await _hub.InvokeAsync("MeshSendV2", Channel, sessionId, from, message.Payload ?? [], _cts.Token).ConfigureAwait(false);
             Interlocked.Increment(ref _sentCount);
         }
         catch (OperationCanceledException) { }
@@ -229,11 +244,11 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
         }
     }
 
-    private void OnMessage(RavaMeshMessage msg)
+    private void OnMessageV2(string channel, string targetSessionId, string fromSessionId, byte[] payload)
     {
-        if (!string.Equals(msg.Channel, Channel, StringComparison.OrdinalIgnoreCase)) return;
+        if (!string.Equals(channel, Channel, StringComparison.OrdinalIgnoreCase)) return;
         Interlocked.Increment(ref _receivedCount);
-        _mediator.Publish(new MeshPayloadMessage(msg.TargetSessionId ?? string.Empty, msg.FromSessionId ?? string.Empty, msg.Payload ?? []));
+        _mediator.Publish(new MeshPayloadMessage(targetSessionId ?? string.Empty, fromSessionId ?? string.Empty, payload ?? []));
     }
 
     public async ValueTask DisposeAsync()
@@ -255,12 +270,4 @@ public sealed class RavaMesh : IRavaMesh, IAsyncDisposable
         _connectGate.Dispose();
         _cts.Dispose();
     }
-}
-
-public sealed class RavaMeshMessage
-{
-    public string Channel { get; set; } = string.Empty;
-    public string TargetSessionId { get; set; } = string.Empty;
-    public string FromSessionId { get; set; } = string.Empty;
-    public byte[] Payload { get; set; } = [];
 }
