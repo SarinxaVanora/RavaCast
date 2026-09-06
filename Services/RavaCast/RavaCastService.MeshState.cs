@@ -32,6 +32,20 @@ public sealed partial class RavaCastService
 
         try
         {
+            // Area discovery is intentionally multicast to everyone in the same live game instance.
+            // Only surface an area advertisement/state when the named host is actually present in our
+            // local object table, preserving the user-facing "nearby" behaviour without needing to
+            // derive the host's private route up front. Targeted join/state traffic is never filtered.
+            var currentAreaSessionId = _dalamudUtil.GetAreaSessionId();
+            var isAreaDelivery = !string.IsNullOrWhiteSpace(currentAreaSessionId)
+                && string.Equals(msg.TargetSessionId, currentAreaSessionId, StringComparison.Ordinal);
+            if (isAreaDelivery && env.Payload is not null && (env.Op == RavaCastOp.Advertise || env.Op == RavaCastOp.StateSnapshot))
+            {
+                var discoveryState = MessagePackSerializer.Deserialize<RavaCastStatePayload>(env.Payload);
+                if (!_dalamudUtil.IsPlayerNameVisible(discoveryState.HostName))
+                    return;
+            }
+
             switch (env.Op)
             {
                 case RavaCastOp.Advertise:

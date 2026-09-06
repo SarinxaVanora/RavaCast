@@ -31,6 +31,17 @@ public sealed partial class RavaCastService
         var local = _objects.LocalPlayer;
         if (local is null) return;
 
+        // Primary discovery path: everyone in the same live world/territory/instance registers the
+        // same ephemeral area route. One advertisement reaches all RavaCast clients in that area.
+        // This deliberately avoids depending on the host deriving every viewer's private route before
+        // the viewer has ever spoken to us.
+        var areaSessionId = _dalamudUtil.GetAreaSessionId();
+        if (!string.IsNullOrWhiteSpace(areaSessionId))
+            SendEnvelope(fromSessionId, areaSessionId, env);
+
+        // Keep the old direct-target path as a compatibility/fallback lane. It is cheap at normal
+        // venue sizes, makes mixed-version rollouts less brittle, and gives us a second path if an
+        // individual client has not registered its area route yet. Duplicate adverts are harmless.
         foreach (var pc in _objects.OfType<IPlayerCharacter>().Where(p => p.Address != IntPtr.Zero && p.Address != local.Address).ToArray())
         {
             try

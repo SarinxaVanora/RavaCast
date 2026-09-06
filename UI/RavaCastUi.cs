@@ -550,6 +550,15 @@ public sealed class RavaCastUi : WindowMediatorSubscriberBase
         if (casts.Count == 0)
         {
             ImGui.TextColored(ImGuiColors.DalamudGrey, "No RavaCast broadcasts nearby right now.");
+
+            if (!_ravaCast.MeshConnected)
+                ImGui.TextColored(ImGuiColors.DalamudRed, "RavaMesh: Offline");
+            else if (!_ravaCast.MeshDiscoveryReady)
+                ImGui.TextColored(ImGuiColors.DalamudYellow, $"RavaMesh: Connected - registering discovery route ({_ravaCast.VisiblePlayerCount} nearby player(s) detected)");
+            else
+                ImGui.TextColored(ImGuiColors.DalamudGrey, $"RavaMesh: Connected - discovery ready ({_ravaCast.VisiblePlayerCount} nearby player(s) detected)");
+
+            ImGui.TextColored(ImGuiColors.DalamudGrey, $"Mesh traffic: {_ravaCast.MeshSentCount} sent / {_ravaCast.MeshReceivedCount} received");
             return;
         }
 

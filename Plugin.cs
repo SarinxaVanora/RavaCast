@@ -40,7 +40,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
         _framework = framework;
 
         _config = new RavaCastConfigService(pluginInterface);
-        var world = new GameWorldService(objects, framework);
+        var world = new GameWorldService(objects, framework, clientState);
         var uiShared = new UiSharedService();
         _mesh = new RavaMesh(new PluginLogger<RavaMesh>(pluginLog), _mediator, world, framework);
         _backendInstaller = new RavaCastBackendInstallerService(new PluginLogger<RavaCastBackendInstallerService>(pluginLog), pluginInterface);

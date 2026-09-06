@@ -2,7 +2,7 @@
   "Author": "Ravalyn",
   "Name": "RavaCast",
   "InternalName": "RavaCast",
-  "AssemblyVersion": "1.0.0.1",
+  "AssemblyVersion": "1.0.0.2",
   "Description": "Shared in-world screens and direct streaming for FFXIV.",
   "ApplicableVersion": "any",
   "Tags": [

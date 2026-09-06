@@ -119,6 +119,12 @@ public sealed partial class RavaCastService
         }
     }
 
+    public bool MeshConnected => _mesh.IsConnected;
+    public bool MeshDiscoveryReady => _mesh.IsDiscoveryReady;
+    public long MeshSentCount => _mesh.SentCount;
+    public long MeshReceivedCount => _mesh.ReceivedCount;
+    public int VisiblePlayerCount => _dalamudUtil.GetVisiblePlayerCount();
+
     public IReadOnlyList<RavaCastSummary> GetActiveCasts()
     {
         var mySession = GetMySessionId();
